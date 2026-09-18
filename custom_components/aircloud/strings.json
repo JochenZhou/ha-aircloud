@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Sign in to OpenLuat",
-        "description": "Sign in with your OpenLuat (AirCloud) account. Username is the phone number.\n\n**Captcha model** (optional): leave it on \"do not solve automatically\" and the next step shows the captcha image for you to type manually. Pick a model and the integration fetches the image, reads it and submits it for you; a wrong guess triggers a fresh image and a retry, up to 3 times, then it falls back to manual entry.\n\n⚠️ **Pick a vision (multimodal) model** — a text-only model cannot read the image and every automatic attempt will fail (you can still type the code manually, sign-in is unaffected).\n\n⚠️ The platform allows **one session only**: signing in here signs out the mobile app and any other web session.{detail}\n\n📌 Your sign-in details (phone number, password, captcha model) are stored in the integration — the platform allows one session only, so when another sign-in kicks this integration off it **signs back in automatically**; normally no action is needed.",
+        "description": "Sign in with your OpenLuat (AirCloud) account; the username is your phone number.\n\n**Captcha model** (optional): leave it at \"do not solve automatically\" and the next step shows the captcha image for you to type manually. Pick a model and the integration fetches the image, reads it and submits it; a wrong guess triggers a fresh image and a retry, up to 3 times, then it falls back to manual entry.\n\n⚠️ **Pick a vision (multimodal) model** — a text-only model cannot read the image and every automatic attempt will fail (you can still type the code manually; sign-in is unaffected).\n\n⚠️ The platform allows **one session only**: signing in here signs out the mobile app and any other web session.{detail}\n\n📌 Your sign-in details (phone number, password, captcha model) are stored in the integration — the platform allows one session only, so when another sign-in kicks this integration off it **signs back in automatically**; normally no action is needed.",
         "data": {
           "phone": "Phone number",
           "password": "Password",
@@ -12,14 +12,14 @@
       },
       "captcha": {
         "title": "Enter captcha",
-        "description": "Sign-in requires a graphical captcha (the server verifies the captcha before the password, so it cannot be skipped).\n\n{captcha_block}\n\nType the 4 characters shown above (**case-sensitive**, they expire in about a minute, a fresh image is fetched whenever submission fails).{detail}",
+        "description": "Sign-in requires a graphical captcha (the server verifies the captcha before the password, so it cannot be skipped).\n\n{captcha_block}\n\nType the 4 characters shown above (**case-sensitive**; they expire in about a minute, and a fresh image is fetched whenever submission fails).{detail}",
         "data": {
           "captcha": "Captcha (4 characters)"
         }
       },
       "reauth_confirm": {
         "title": "Sign in to OpenLuat again",
-        "description": "The platform allows **one session only**: signing in from the mobile app or another browser invalidates this integration. Please sign in again.\n\nThe captcha model is optional — **pick a vision model**. Leave it on \"do not solve automatically\" to type the captcha manually in the next step.{detail}",
+        "description": "The platform allows **one session only**: signing in from the mobile app or another browser invalidates this integration. Please sign in again.\n\nThe captcha model is optional — **pick a vision model**. Leave it at \"do not solve automatically\" to type the captcha manually in the next step.{detail}",
         "data": {
           "phone": "Phone number",
           "password": "Password",

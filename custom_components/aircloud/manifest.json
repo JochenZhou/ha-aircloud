@@ -4,7 +4,8 @@
   "codeowners": ["@JochenZhou"],
   "config_flow": true,
   "documentation": "https://github.com/JochenZhou/ha-aircloud",
+  "integration_type": "hub",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/JochenZhou/ha-aircloud/issues",
-  "version": "0.2.0"
+  "version": "0.2.1"
 }
