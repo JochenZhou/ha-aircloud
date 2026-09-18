@@ -46,6 +46,18 @@ DEFAULT_APP_ID = "move"
 DEFAULT_SCAN_INTERVAL = 15
 DEFAULT_TRACK_WINDOW = 7          # 每次回溯天数窗口（配合去重，保证不丢点）
 
+# --- 轨迹点位过滤与抽稀（移植自参考实现 luatos-pet-track js/algo/alg.js v7） ---
+# 设备会上报三类垃圾点：整段补传的副本（坐标完全相同）、同秒多点、折返尖刺。
+# 实测本平台静止时段 400 点里 391 个是重复坐标，直接画出来又卡又糊。
+TRACK_FILTER = True               # 关掉可拿到未过滤的原始点（排障用）
+TRACK_MERGE_M = 150.0             # 相邻同位折叠半径（停留时段折成一个节点）
+TRACK_SPIKE_MIN_M = 1000.0        # 折返尖刺：折离得足够远才值得判
+TRACK_SPIKE_RATIO_K = 2.5         # 折返形状判据：dAB+dBC > K × max(dAC, 500m)
+TRACK_SPIKE_V_MPS = 55.6          # 200 km/h：进出至少一侧是瞬移才算尖刺
+# 写进实体属性的点上限（前端渲染压力主要来自这里）。
+# 实测 HA 属性是 JSON 进每次 state_changed → 240 点 ≈ 11 KB，地图卡片会卡。
+ENTITY_TRACK_MAX_POINTS = 60
+
 # --- 展示名称（集成名 / 设备名，中文优先） ---
 DEFAULT_NAME = "合宙 IoT"          # 集成与配置条目标题
 DEVICE_NAME = "合宙 IoT"

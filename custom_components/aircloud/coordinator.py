@@ -27,6 +27,7 @@ from .api import (
     AirCloudError,
     AirCloudRateLimited,
     _count_turns,
+    parse_local_time,
 )
 from .const import (
     CONF_APP_ID,
@@ -41,11 +42,17 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TRACK_WINDOW,
     DOMAIN,
+    ENTITY_TRACK_MAX_POINTS,
     RELOGIN_FIRST_DELAY_S,
     RELOGIN_LOG_AFTER,
     RELOGIN_NOTREADY_RETRY_S,
     RELOGIN_SETUP_WAIT_S,
     RELOGIN_RETRY_S,
+    TRACK_FILTER,
+    TRACK_MERGE_M,
+    TRACK_SPIKE_MIN_M,
+    TRACK_SPIKE_RATIO_K,
+    TRACK_SPIKE_V_MPS,
 )
 from .relogin import (
     ReloginNotReady,
@@ -53,6 +60,7 @@ from .relogin import (
     async_relogin,
     relogin_blocker,
 )
+from .track import filter_track_outliers, thin_track
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,23 +160,84 @@ class AirCloudCoordinator(DataUpdateCoordinator[dict[str, dict]]):
 
     # ------------------------------------------------------------------ #
     def _merge_track(self, client_id: str, new_points: list[dict]) -> list[dict]:
-        """把新点并入滚动缓存（时间+坐标去重）。"""
+        """把新点并入滚动缓存。
+
+        只用**坐标去重**这一层过滤（等价于参考实现过滤流程的第 1 步）：
+        设备会把缓存位置整段补传，坐标与之前完全相同（连浮点都一样），
+        实测静止时段 400 点里 391 个是这样的副本。不去重的话缓存会被
+        副本塞满，一眼看去「一直没动」但点数是满的。
+
+        这里**不做**同位折叠与尖刺判罚 —— 那两步是为「画出来好看」服务的，
+        折叠会把停留时段压成一个节点，用在缓存上就等于丢点。
+        完整过滤留给展示层（见 `display_track`）。
+        """
         buf = self._tracks.setdefault(client_id, [])
         keys = self._track_keys.setdefault(client_id, set())
         for pt in new_points:
-            key = f"{pt.get('time')}|{pt.get('lng')}|{pt.get('lat')}"
+            key = self._dedupe_key(pt)
             if key in keys:
                 continue
             keys.add(key)
-            buf.append(pt)
+            buf.append(self._normalize_point(pt))
         buf.sort(key=lambda r: str(r.get("time") or ""))
         # 超长时裁剪，并同步重建索引集合
         if len(buf) > TRACK_MAX_POINTS * 2:
             buf = buf[-TRACK_MAX_POINTS:]
             self._tracks[client_id] = buf
-            self._track_keys[client_id] = {
-                f"{p.get('time')}|{p.get('lng')}|{p.get('lat')}" for p in buf}
+            self._track_keys[client_id] = {self._dedupe_key(p) for p in buf}
         return self._tracks[client_id]
+
+    @staticmethod
+    def _normalize_point(pt: dict) -> dict:
+        """补一个数值 ``ts``（秒）。
+
+        平台 history 只给 ``time`` 字符串（北京时间字面），而过滤算法的
+        「进出是否瞬移」判据依赖数值时间 —— 缺 ts 会被当成瞬移，真实掉头就被误删
+        （实测：带 ts 保留 5/5 的 U 型掉头，无 ts 只剩 1）。因此入缓存前统一补上。
+        """
+        out = dict(pt)
+        if out.get("ts") is None:
+            ts = parse_local_time(str(out.get("time") or ""))
+            if ts is not None:
+                out["ts"] = ts
+        return out
+
+    @staticmethod
+    def _dedupe_key(pt: dict) -> str:
+        """坐标量化到 6 位（≈0.1 m）后做去重键。
+
+        不能直接比浮点原值：history 流是全精度浮点、tags 流是 6 位小数字符串，
+        同一位置跨源精度不同，精确相等会漏判。
+        """
+        try:
+            return f"{round(float(pt['lng']), 6)}|{round(float(pt['lat']), 6)}"
+        except (KeyError, TypeError, ValueError):
+            return f"{pt.get('time')}|{pt.get('lng')}|{pt.get('lat')}"
+
+    def display_track(self, client_id: str) -> tuple[list[dict], dict]:
+        """给前端用的轨迹：完整过滤（去重 + 同位折叠 + 尖刺剔除）+ 等距抽稀。
+
+        与缓存的区别：缓存要保真（转向统计依赖 5s 级原始点），展示只求
+        「看得出路线、不卡」。返回 ``(points, stats)``。
+        """
+        raw = self._tracks.get(client_id) or []
+        if not TRACK_FILTER:
+            return thin_track(raw, ENTITY_TRACK_MAX_POINTS), {
+                "filtered": False, "raw_points": len(raw)}
+        stats: dict = {}
+        cleaned = filter_track_outliers(
+            raw,
+            spike_min=TRACK_SPIKE_MIN_M,
+            ratio_k=TRACK_SPIKE_RATIO_K,
+            merge_m=TRACK_MERGE_M,
+            v_spike=TRACK_SPIKE_V_MPS,
+            stats=stats,
+        )
+        thinned = thin_track(cleaned, ENTITY_TRACK_MAX_POINTS)
+        stats["raw_points"] = len(raw)
+        stats["display_points"] = len(thinned)
+        stats["filtered"] = True
+        return thinned, stats
 
     def _window(self, client_id: str) -> tuple[str, str]:
         """滑动窗口：起点取上次成功轮询的结束时间，保证边界点不丢。"""
@@ -341,11 +410,16 @@ class AirCloudCoordinator(DataUpdateCoordinator[dict[str, dict]]):
             # 把本轮窗口回补的点并入轨迹缓存（去重），保证不丢点
             new_points = status.get("points") or []
             merged = self._merge_track(client_id, new_points)
-            status["points"] = merged[-TRACK_MAX_POINTS:]
             status["point_count"] = len(merged)
             status["new_points"] = len(new_points)
             status["turns"] = _count_turns(merged)
             status["turns_recent"] = _count_turns(merged[-40:])
+            # 展示用轨迹：完整过滤 + 抽稀。写入实体的点越少，前端越轻 ——
+            # 属性是 JSON 进每次 state_changed，240 点（≈11 KB）足以让地图卡片卡顿。
+            # 注意缓存里仍保留 5s 级原始点，转向统计不受抽稀影响。
+            display_pts, fstats = self.display_track(client_id)
+            status["points"] = display_pts
+            status["filter_stats"] = fstats
             # 窗口内没取到点时，沿用上一轮的位置信息，避免实体闪断
             if not status.get("found") and self.data and client_id in self.data:
                 prev = self.data[client_id]

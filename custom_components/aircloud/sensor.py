@@ -204,6 +204,14 @@ class AirCloudTrackSensor(_Base):
             attrs["track"] = [[p.get("lat"), p.get("lng")] for p in pts]
             attrs["track_time_first"] = pts[0].get("time")
             attrs["track_time_last"] = pts[-1].get("time")
+        # 过滤/抽稀口径：track 属性里的点数与原始取回点数的差别一目了然
+        fs = st.get("filter_stats") or {}
+        if fs:
+            attrs["track_display_points"] = fs.get("display_points")
+            if fs.get("filtered"):
+                attrs["track_raw_points"] = fs.get("raw_points")
+                attrs["track_dupes_removed"] = fs.get("dupes")
+                attrs["track_outliers_removed"] = fs.get("dropped")
         return {k: v for k, v in attrs.items() if v not in (None, [])}
 
 
