@@ -1,0 +1,122 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sign in to OpenLuat",
+        "description": "Sign in with your OpenLuat (AirCloud) account; the username is your phone number.\n\n**Captcha model** (optional): leave it at \"do not solve automatically\" and the next step shows the captcha image for you to type manually. Pick a model and the integration fetches the image, reads it and submits it; a wrong guess triggers a fresh image and a retry, up to 3 times, then it falls back to manual entry.\n\n⚠️ **Pick a vision (multimodal) model** — a text-only model cannot read the image and every automatic attempt will fail (you can still type the code manually; sign-in is unaffected).\n\n⚠️ The platform allows **one session only**: signing in here signs out the mobile app and any other web session.{detail}\n\n📌 Your sign-in details (phone number, password, captcha model) are stored in the integration — the platform allows one session only, so when another sign-in kicks this integration off it **signs back in automatically**; normally no action is needed.",
+        "data": {
+          "phone": "Phone number",
+          "password": "Password",
+          "ocr_provider": "Captcha model (vision model required)"
+        }
+      },
+      "captcha": {
+        "title": "Enter captcha",
+        "description": "Sign-in requires a graphical captcha (the server verifies the captcha before the password, so it cannot be skipped).\n\n{captcha_block}\n\nType the 4 characters shown above (**case-sensitive**; they expire in about a minute, and a fresh image is fetched whenever submission fails).{detail}",
+        "data": {
+          "captcha": "Captcha (4 characters)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to OpenLuat again",
+        "description": "The platform allows **one session only**: signing in from the mobile app or another browser invalidates this integration. Please sign in again.\n\nThe captcha model is optional — **pick a vision model**. Leave it at \"do not solve automatically\" to type the captcha manually in the next step.{detail}",
+        "data": {
+          "phone": "Phone number",
+          "password": "Password",
+          "ocr_provider": "Captcha model (vision model required)"
+        }
+      },
+      "reauth_captcha": {
+        "title": "Sign in again · enter captcha",
+        "description": "{captcha_block}\n\nType the 4 characters shown above (**case-sensitive**).{detail}",
+        "data": {
+          "captcha": "Captcha (4 characters)"
+        }
+      },
+      "project": {
+        "title": "Select project",
+        "data": {
+          "project": "Project"
+        }
+      },
+      "devices": {
+        "title": "Select devices",
+        "data": {
+          "devices": "Devices (multi-select)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Wrong phone number or password",
+      "cannot_connect": "Cannot reach the platform",
+      "captcha_error": "Captcha wrong or expired — a new image was fetched, please retry",
+      "login_failed": "Sign-in failed",
+      "ocr_failed": "Automatic recognition failed — switched to manual entry, read the image above"
+    },
+    "abort": {
+      "already_configured": "This account is already configured",
+      "reauth_successful": "Credentials updated",
+      "reauth_failed": "Re-authentication failed"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "合宙 IoT options",
+        "data": {
+          "scan_interval": "Poll interval (seconds, minimum 10)",
+          "devices": "Devices to track",
+          "phone": "Auto sign-in · phone number",
+          "password": "Auto sign-in · password (leave empty to keep)",
+          "ocr_provider": "Auto sign-in · captcha model (vision required)"
+        },
+        "description": "Polling interval and device selection. The three fields below keep the **session alive automatically**: the platform allows one session only, so signing in from the mobile app or a browser immediately kicks this integration off. Fill in the phone number, password and pick a **vision model**, and the integration signs back in by itself (retrying every 10 minutes on failure) — normally no action is needed."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery level"
+      },
+      "vbat": {
+        "name": "Battery voltage"
+      },
+      "signal": {
+        "name": "4G signal"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "sat": {
+        "name": "Satellites visible"
+      },
+      "address": {
+        "name": "Address"
+      },
+      "last_seen": {
+        "name": "Last report"
+      },
+      "track_points": {
+        "name": "Track points (current round)"
+      },
+      "turns": {
+        "name": "Turns (current round)"
+      },
+      "auto_relogin": {
+        "name": "Auto sign-in"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "low_battery": {
+        "name": "Low battery"
+      },
+      "gps_fix": {
+        "name": "GPS fix"
+      }
+    }
+  }
+}
