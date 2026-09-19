@@ -43,20 +43,34 @@ RELOGIN_SETUP_WAIT_S = 90
 RELOGIN_LOG_AFTER = 3          # 前 N 次失败按 warning 记录，之后降为 info
 
 DEFAULT_APP_ID = "move"
-DEFAULT_SCAN_INTERVAL = 15
-DEFAULT_TRACK_WINDOW = 7          # 每次回溯天数窗口（配合去重，保证不丢点）
+DEFAULT_SCAN_INTERVAL = 15     # 轮询间隔（秒）：按此频率取「此刻位置」
 
-# --- 轨迹点位过滤与抽稀（移植自参考实现 luatos-pet-track js/algo/alg.js v7） ---
-# 设备会上报三类垃圾点：整段补传的副本（坐标完全相同）、同秒多点、折返尖刺。
-# 实测本平台静止时段 400 点里 391 个是重复坐标，直接画出来又卡又糊。
-TRACK_FILTER = True               # 关掉可拿到未过滤的原始点（排障用）
+# --- 轨迹（只累积轮询到的定位点，不读取平台历史）---
+# 每轮只把「当前定位」并入滚动缓存，坐标相同的点直接跳过（设备静止时每轮
+# 坐标都一样，不去重缓存会被同一个位置塞满）。原样画出来即为真实行程：
+# 有多少个点、点在哪里，完全取决于轮询频率与设备实际移动。
+# 缓存保留点数：15 秒一报时约等于 2 小时连续移动
+TRACK_CACHE_MAX_POINTS = 480
+# 写进实体属性的点上限（前端渲染压力主要来自这里）。
+# HA 属性是 JSON 进每次 state_changed，点太多地图卡片会卡。
+# 是「上限」不是目标 —— 几何简化后大多数时候远达不到这个数
+# （全天 801 点简化到 183 点）。
+ENTITY_TRACK_MAX_POINTS = 240
+# 坐标写入属性时保留的小数位（6 位 ≈ 0.11 m，远小于 GPS 精度）。
+# 不量化的话全精度浮点会把属性体积翻倍（801 点 18 KB → 量化后 4 KB），
+# 白白拖慢地图卡片。
+TRACK_COORD_DIGITS = 6
+
+# --- 轨迹点位清理（移植自参考实现 luatos-pet-track js/algo/alg.js v7 的三步过滤）---
+# 本集成按轮询频率累积定位点，缓存里不会有「补传副本」，所以展示层只用
+# 后两步：同位折叠（把停留时段压成一个节点）+ 折返尖刺剔除。
+# **不要打开全局坐标去重**：轮询数据里坐标重复 = 设备真的回到了这里，
+# 去重会把返程整段吃掉（见 track.filter_track_outliers 的 global_dedupe）。
+TRACK_FILTER = True               # 关掉可只做几何简化（排障用）
 TRACK_MERGE_M = 150.0             # 相邻同位折叠半径（停留时段折成一个节点）
 TRACK_SPIKE_MIN_M = 1000.0        # 折返尖刺：折离得足够远才值得判
 TRACK_SPIKE_RATIO_K = 2.5         # 折返形状判据：dAB+dBC > K × max(dAC, 500m)
 TRACK_SPIKE_V_MPS = 55.6          # 200 km/h：进出至少一侧是瞬移才算尖刺
-# 写进实体属性的点上限（前端渲染压力主要来自这里）。
-# 实测 HA 属性是 JSON 进每次 state_changed → 240 点 ≈ 11 KB，地图卡片会卡。
-ENTITY_TRACK_MAX_POINTS = 60
 
 # --- 展示名称（集成名 / 设备名，中文优先） ---
 DEFAULT_NAME = "合宙 IoT"          # 集成与配置条目标题
@@ -66,9 +80,9 @@ DEVICE_MODEL = "IoT 定位设备"
 
 PLATFORMS = ["device_tracker", "sensor", "binary_sensor"]
 
-# 平台查询频率闸门（实测）：latest_location 1s 一次约 50% 返回 429；
-# 而 location_history 实测 1s 一次 6/6 成功、15s 轮询 8/8 成功，且能取回
-# 移动期的全部 5s 级点位 —— 因此状态刷新走 location_history，不走 latest_location。
+# 平台查询频率闸门（实测）：返回 429 + 「查询频率应该近似等于设备上报频率」。
+# 设备移动 5s 一报、静止 300s 一报，轮询间隔取 DEFAULT_SCAN_INTERVAL(15s) 时
+# latest_location 实测 8/8 成功；list_by_tags 偶发 429，靠退避重试兜住。
 RATE_LIMIT_CODE = 429
 AUTH_FAIL_CODES = {102, 103, 105}
 

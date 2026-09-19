@@ -64,13 +64,13 @@
       "init": {
         "title": "合宙 IoT options",
         "data": {
-          "scan_interval": "Poll interval (seconds, minimum 10)",
+          "scan_interval": "Poll interval (seconds, min 10)",
           "devices": "Devices to track",
           "phone": "Auto sign-in · phone number",
           "password": "Auto sign-in · password (leave empty to keep)",
           "ocr_provider": "Auto sign-in · captcha model (vision required)"
         },
-        "description": "Polling interval and device selection. The three fields below keep the **session alive automatically**: the platform allows one session only, so signing in from the mobile app or a browser immediately kicks this integration off. Fill in the phone number, password and pick a **vision model**, and the integration signs back in by itself (retrying every 10 minutes on failure) — normally no action is needed."
+        "description": "Poll interval and device selection. **The interval also sets the track density**: each poll appends the current position to the track, so a shorter interval yields a finer track (and stays closer to the platform's recommended report rate). The three fields below keep the **session alive**: the platform allows one session per account, so signing in from the app or web will kick this integration off. With phone, password and a **vision model** saved, it signs back in automatically (retrying every 10 minutes)."
       }
     }
   },
@@ -98,10 +98,10 @@
         "name": "Last report"
       },
       "track_points": {
-        "name": "Track points (current round)"
+        "name": "Track points"
       },
       "turns": {
-        "name": "Turns (current round)"
+        "name": "Turns"
       },
       "auto_relogin": {
         "name": "Auto sign-in"

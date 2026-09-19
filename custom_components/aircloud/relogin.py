@@ -13,7 +13,11 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import socket
+
+import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -45,11 +49,15 @@ class ReloginUnavailable(Exception):
 
 
 class ReloginNotReady(Exception):
-    """前提条件**暂时**不满足（依赖的集成还没加载完）—— 短间隔重试，不算失败。
+    """前提条件**暂时**不满足（依赖的集成还没加载完 / 网络暂时不通）—— 短间隔重试。
 
-    典型场景：HA 启动时本集成比 llmvision 先 setup，此时 ``image_analyzer``
-    服务还没注册。这是启动顺序问题，几秒后就正常了，绝不能因此计入失败、
-    更不能按小时级冷却等下去。
+    典型场景：
+
+    * HA 启动时本集成比 llmvision 先 setup，此时 ``image_analyzer`` 服务还没注册。
+      这是启动顺序问题，几秒后就正常了，绝不能因此计入失败、更不能按小时级冷却等下去。
+    * **HA 启动瞬间 DNS/网络尚未就绪**（实测：重启 HA 时解析
+      ``api-iot.luatos.com`` 超时）。这是环境问题不是登录问题，同样只需短间隔重试；
+      若按 10 分钟冷却处理，一次重启就要白等十分钟才恢复。
     """
 
 
@@ -67,6 +75,24 @@ def relogin_blocker(data: dict) -> str:
     if not key or key == OCR_MANUAL:
         return "未选择验证码识别模型（选「不自动识别」时无法自动重登）"
     return ""
+
+
+def is_network_error(err: BaseException) -> bool:
+    """判断异常是否为「网络/环境」问题（DNS 超时、连不上、读超时）。
+
+    这类失败跟登录本身无关，重启 HA 的瞬间尤其常见；必须走短间隔重试，
+    否则一次重启就要白等一整个冷却周期。
+    """
+    if isinstance(err, (aiohttp.ClientConnectorError, aiohttp.ClientConnectionError,
+                        aiohttp.ServerTimeoutError, asyncio.TimeoutError,
+                        socket.gaierror, OSError)):
+        return True
+    text = str(err).lower()
+    return any(kw in text for kw in (
+        "cannot connect to host", "timeout while contacting dns",
+        "name or service not known", "temporary failure in name resolution",
+        "connection reset", "server disconnected",
+    ))
 
 
 async def async_relogin(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, str]:
@@ -101,8 +127,15 @@ async def async_relogin(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, st
     last_error = ""
     for attempt in range(1, OCR_MAX_ATTEMPTS + 1):
         # oauth 参数（client_id/code_challenge/state）可能过期，每轮重取，开销极小
-        oauth = await async_oauth_params(session)
-        cap_id, img = await async_captcha(session)
+        # 网络类异常直接上抛成 ReloginNotReady：这是环境问题，不该消耗重试次数，
+        # 更不该被计入失败并吃到 10 分钟冷却（重启 HA 瞬间 DNS 常常还没就绪）。
+        try:
+            oauth = await async_oauth_params(session)
+            cap_id, img = await async_captcha(session)
+        except Exception as err:  # noqa: BLE001
+            if is_network_error(err):
+                raise ReloginNotReady(f"网络暂不可用（{err}）") from err
+            raise
 
         code = await async_read_captcha(hass, img, provider)
         if not code:
@@ -121,6 +154,8 @@ async def async_relogin(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, st
             # 密码错是永久性问题，继续试只会撞锁
             raise ReloginUnavailable(f"账号或密码已失效：{err}") from err
         except AirCloudLoginError as err:
+            if is_network_error(err):
+                raise ReloginNotReady(f"网络暂不可用（{err}）") from err
             last_error = str(err)
             continue
 

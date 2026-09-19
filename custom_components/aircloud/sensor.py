@@ -33,6 +33,7 @@ from .const import (
     DEVICE_NAME,
     DOMAIN,
     RELOGIN_RETRY_S,
+    TRACK_COORD_DIGITS,
     TURN_MIN_SEGMENT_M,
     TURN_THRESHOLD_DEG,
     VBAT_LOW_MV,
@@ -177,9 +178,8 @@ class AirCloudAddressSensor(_Base):
 
 
 class AirCloudTrackSensor(_Base):
-    """本轮窗口内取到的轨迹点数（验证不丢点）。"""
+    """累积轨迹的点数（集成启动以来轮询到的定位点）。"""
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:map-marker-path"
 
@@ -194,14 +194,20 @@ class AirCloudTrackSensor(_Base):
     def extra_state_attributes(self) -> dict:
         st = self._status
         attrs: dict = {
-            "window_start": st.get("window_start"),
-            "window_end": st.get("window_end"),
             "new_points_this_round": st.get("new_points"),
+            "fetched_points_this_round": st.get("fetched_points"),
         }
         pts = st.get("points") or []
         if pts:
-            # 轨迹以 [lat, lng] 数组暴露，便于卡片/自动化直接画线
-            attrs["track"] = [[p.get("lat"), p.get("lng")] for p in pts]
+            # 轨迹以 [lat, lng] 数组暴露，便于卡片/自动化直接画线。
+            # 坐标量化到 6 位（≈0.11 m，远小于 GPS 精度）：不量化的话全精度浮点
+            # 会让属性体积翻倍（801 点 18 KB → 4 KB），白白拖慢地图卡片。
+            attrs["track"] = [
+                [round(float(p.get("lat")), TRACK_COORD_DIGITS),
+                 round(float(p.get("lng")), TRACK_COORD_DIGITS)]
+                for p in pts
+                if p.get("lat") is not None and p.get("lng") is not None
+            ]
             attrs["track_time_first"] = pts[0].get("time")
             attrs["track_time_last"] = pts[-1].get("time")
         # 过滤/抽稀口径：track 属性里的点数与原始取回点数的差别一目了然
@@ -212,11 +218,16 @@ class AirCloudTrackSensor(_Base):
                 attrs["track_raw_points"] = fs.get("raw_points")
                 attrs["track_dupes_removed"] = fs.get("dupes")
                 attrs["track_outliers_removed"] = fs.get("dropped")
+        if attrs.get("track"):
+            attrs["track_note"] = (
+                "轨迹由每次轮询的定位点累积而成，不含集成启动前的历史位置；"
+                "重启 HA 后从零开始累积"
+            )
         return {k: v for k, v in attrs.items() if v not in (None, [])}
 
 
 class AirCloudTurnSensor(_Base):
-    """窗口内转向次数（方位角变化 > 阈值）。"""
+    """累积轨迹内的转向次数（方位角变化 > 阈值）。"""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC

@@ -2,6 +2,10 @@
 
 对接 /iot/open_api/*：一律 POST + Content-Type: application/json，三鉴权头
 authorization(token)/salt/sid（禁止 Bearer 前缀）。common/* 另需 X-Key-Open-Api。
+
+取数口径：**按轮询频率问「此刻在哪」**（latest_location），不读取平台历史
+（location_history 按时间升序分页，翻几页只能拿到最老的那一段，反而把
+几天前的旧点和当前位置接成一条跨城直线）。轨迹由 coordinator 累积轮询点。
 """
 from __future__ import annotations
 
@@ -32,10 +36,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# 单次状态里保留的轨迹点数上限（避免属性过大）
-TRACK_MAX_POINTS = 240
-
 
 class AirCloudError(Exception):
     """接口错误基类。
@@ -216,7 +216,7 @@ def bearing(p1: dict, p2: dict) -> float | None:
 
 def _count_turns(points: list[dict], threshold: float = TURN_THRESHOLD_DEG,
                  min_segment_m: float = TURN_MIN_SEGMENT_M) -> int:
-    """统计窗口内的真实转向次数。
+    """统计一段轨迹里的真实转向次数。
 
     拐弯/掉头在坐标序列上表现为方位角突变，按原始 5s 级点位算才不会漏；
     但设备静止时的 GPS 抖动会让方位角乱跳，必须先按「分段位移」过滤掉抖动，
@@ -409,130 +409,55 @@ class AirCloudApi:
         )
         return res["value"] if isinstance(res["value"], dict) else {}
 
-    async def async_list_by_tags_window(self, client_id: str, tags: list[int],
-                                        start: str, end: str,
-                                        page: int = 1, size: int = 100) -> dict:
-        """按 ct 时间窗过滤查询（文档记载的 filter 形式：aks/acs/avs）。
+    # ---- 状态聚合：按轮询频率取「此刻定位」+ tag 状态 ----
+    async def async_device_status(self, client_id: str) -> dict:
+        """取一次设备状态：当前位置 + 电量/卫星/信号/定位标识。
 
-        ct 是**本地时间**（北京），字符串比较即可，不要做时区换算。
-        实测该过滤生效（同样条件用 filter 查单日 total≈2914，不带过滤≈7066）。
+        **不读平台历史** —— 每轮只问「设备现在在哪」，把这一轮的点交给
+        coordinator 累积成轨迹。这样轨迹的密度就是轮询频率，不会像读取
+        历史那样一次灌进几天的旧点。
         """
-        res = await self._post_retry_rate_limit(
-            "/aircloud/list_by_tags",
-            {
-                "client_id": client_id,
-                "tags": list(tags),
-                "page": page,
-                "size": size,
-                "filter": {
-                    "aks": ["ct", "ct"],
-                    "acs": ["ge", "le"],
-                    "avs": [start, end],
-                },
-            },
-        )
-        return res["value"] if isinstance(res["value"], dict) else {}
-
-    async def async_location_history(self, client_id: str, start: str, end: str,
-                                     page: int = 1, size: int = 100) -> list[dict]:
-        res = await self._post(
-            "/aircloud/location_history",
-            {"client_id": client_id, "start": start, "end": end, "page": page, "size": size},
-        )
-        value = res["value"]
-        return (value or {}).get("records") or [] if isinstance(value, dict) else []
-
-    async def async_location_history_range(self, client_id: str, start: str, end: str,
-                                           max_pages: int = 4) -> list[dict]:
-        """回溯时间窗内的全部点位（页间去重）。
-
-        这是不丢点的关键：设备移动时 5s 一报，固定间隔轮询只能取到采样瞬间的点；
-        本接口实测无频率闸门，按时间窗回溯即可拿回窗口内每一个点（含拐弯/掉头）。
-        """
-        points: list[dict] = []
-        seen: set[str] = set()
-        for page in range(1, max_pages + 1):
-            records = await self.async_location_history(client_id, start, end, page, 100)
-            if not records:
-                break
-            for rec in records:
-                key = f"{rec.get('time')}|{rec.get('lng')}|{rec.get('lat')}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                points.append(rec)
-            if len(records) < 100:
-                break
-        points.sort(key=lambda r: str(r.get("time") or ""))
-        return points
-
-    # ---- 状态聚合：历史窗口回溯（不丢点）+ tag 状态 ----
-    async def async_device_status(self, client_id: str, window_start: str | None = None,
-                                  window_end: str | None = None) -> dict:
         status: dict = {"client_id": client_id, "found": False}
 
-        # ① 历史窗口回溯：拿回窗口内每一个点，取最新点做当前位置
-        if window_start and window_end:
-            points = await self.async_location_history_range(client_id, window_start, window_end)
-            status["window_start"] = window_start
-            status["window_end"] = window_end
-            status["point_count"] = len(points)
-            status["points"] = points[-TRACK_MAX_POINTS:] if points else []
-            status["points_truncated"] = max(0, len(points) - TRACK_MAX_POINTS)
-            if points:
-                last = points[-1]
-                status["turns"] = _count_turns(points)
-                try:
-                    status["gcj_lng"] = float(last["lng"])
-                    status["gcj_lat"] = float(last["lat"])
-                    status["found"] = True
-                except (KeyError, TypeError, ValueError):
-                    pass
-                try:
-                    status["wgs_lng"] = float(last["wlng"])
-                    status["wgs_lat"] = float(last["wlat"])
-                except (KeyError, TypeError, ValueError):
-                    if status.get("gcj_lng") is not None:
-                        status["wgs_lng"], status["wgs_lat"] = gcj02_to_wgs84(
-                            status["gcj_lng"], status["gcj_lat"])
-                status["time"] = last.get("time") or ""
-                status["ts"] = parse_local_time(status["time"])
-
-        # 位置时间缺失时，回退用轻量的 latest_location 补齐地址/信号
-        if not status.get("found"):
+        # ① 此刻定位（含地址/信号/时间）
+        try:
+            location = await self.async_latest_location(client_id)
+        except (AirCloudRateLimited, AirCloudError):
+            location = None
+        if location and location.get("lng") is not None and location.get("lat") is not None:
             try:
-                location = await self.async_latest_location(client_id)
-            except (AirCloudRateLimited, AirCloudError):
-                location = None
-            if location and location.get("lng") is not None and location.get("lat") is not None:
+                status["gcj_lng"] = float(location["lng"])
+                status["gcj_lat"] = float(location["lat"])
+                status["found"] = True
+            except (TypeError, ValueError):
+                pass
+        if status.get("found"):
+            try:
+                status["wgs_lng"] = float(location["wlng"])
+                status["wgs_lat"] = float(location["wlat"])
+            except (KeyError, TypeError, ValueError):
+                status["wgs_lng"], status["wgs_lat"] = gcj02_to_wgs84(
+                    status["gcj_lng"], status["gcj_lat"])
+            status["address"] = location.get("address") or ""
+            status["time"] = location.get("time") or ""
+            status["ts"] = parse_local_time(status["time"])
+            # 官方口径优先：文档说 latest_location 直接给 percent。
+            # 实测该字段时有时无，给了就用，省掉 vbat 线性换算的误差。
+            if location.get("percent") is not None:
+                status["battery"] = location["percent"]
+                status["battery_official"] = True
+            if location.get("signal") not in (None, ""):
                 try:
-                    status["gcj_lng"] = float(location["lng"])
-                    status["gcj_lat"] = float(location["lat"])
-                    status["found"] = True
+                    status["signal"] = int(float(location["signal"]))
                 except (TypeError, ValueError):
                     pass
-                if status.get("found"):
-                    try:
-                        status["wgs_lng"] = float(location["wlng"])
-                        status["wgs_lat"] = float(location["wlat"])
-                    except (KeyError, TypeError, ValueError):
-                        status["wgs_lng"], status["wgs_lat"] = gcj02_to_wgs84(
-                            status["gcj_lng"], status["gcj_lat"])
-                    status["address"] = location.get("address") or ""
-                    status["time"] = location.get("time") or ""
-                    status["ts"] = parse_local_time(status["time"])
-                    # 官方口径优先：文档说 latest_location 直接给 percent。
-                    # 给了就用它，省掉 vbat 线性换算的误差。
-                    if location.get("percent") is not None:
-                        status["battery"] = location["percent"]
-                        status["battery_official"] = True
-                    if location.get("signal") not in (None, ""):
-                        try:
-                            status["signal"] = int(float(location["signal"]))
-                        except (TypeError, ValueError):
-                            pass
 
-        records = (await self.async_list_by_tags(client_id, STATUS_TAGS, 1, 10)).get("records") or []
+        # ② tag 状态：电量/卫星/信号/定位标识（偶发 429 由客户端退避重试兜住）
+        try:
+            records = (await self.async_list_by_tags(
+                client_id, STATUS_TAGS, 1, 10)).get("records") or []
+        except AirCloudError:
+            records = []
         if records:
             status.setdefault("time", records[0].get("ct") or "")
             status.setdefault("ts", parse_local_time(records[0].get("ct") or ""))
@@ -573,4 +498,14 @@ class AirCloudApi:
                     status["speed"] = round(last["speed"] * 3.6, 1)   # m/s → km/h
                     status["course"] = last["course"]
                     status["altitude"] = last["altitude"]
+
+        # ③ 本轮取到的定位点（最多 1 个）交给 coordinator 累积
+        status["points"] = []
+        if status.get("found"):
+            pt: dict = {"lng": status["gcj_lng"], "lat": status["gcj_lat"]}
+            if status.get("time"):
+                pt["time"] = status["time"]
+            if status.get("ts"):
+                pt["ts"] = status["ts"]
+            status["points"] = [pt]
         return status
