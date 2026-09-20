@@ -102,7 +102,11 @@ class AirCloudCoordinator(DataUpdateCoordinator[dict[str, dict]]):
         self._relogin_fails: int = 0
         # 记录最近一次自动重登结果，暴露给诊断用
         self.relogin_last_result: str = "尚未触发"
+        # 只有在**成功**时才更新；失败走 relogin_last_fail_ts。
+        # 两者必须分开：合成一个字段时，一次失败会把「上次成功时间」覆盖成失败时刻，
+        # 诊断实体上就出现「last_success_ts = 失败时刻」这种自相矛盾的读数。
         self.relogin_last_ts: float | None = None
+        self.relogin_last_fail_ts: float | None = None
 
         self.api = self._build_api(cfg, hass)
         interval = int(cfg.get(CONF_SCAN_INTERVAL) or DEFAULT_SCAN_INTERVAL)
@@ -261,7 +265,8 @@ class AirCloudCoordinator(DataUpdateCoordinator[dict[str, dict]]):
     def _note_relogin_fail(self, detail: str) -> None:
         self._relogin_fails += 1
         self.relogin_last_result = detail
-        self.relogin_last_ts = time.time()
+        # 只记失败时间，**不动** relogin_last_ts（那是「上次成功」）
+        self.relogin_last_fail_ts = time.time()
         if self._relogin_fails <= RELOGIN_LOG_AFTER:
             _LOGGER.warning("自动重新登录失败（第 %s 次）：%s", self._relogin_fails, detail)
         else:

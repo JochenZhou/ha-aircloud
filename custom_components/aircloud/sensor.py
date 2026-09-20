@@ -283,6 +283,7 @@ class AirCloudReloginSensor(_Base):
         co = self.coordinator
         return {
             "last_success_ts": co.relogin_last_ts,
+            "last_failure_ts": co.relogin_last_fail_ts,
             "failure_count": co._relogin_fails,
             "retry_interval_s": RELOGIN_RETRY_S,
             "next_retry_in_s": (
