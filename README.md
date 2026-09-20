@@ -4,11 +4,32 @@
 [![hacs](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JochenZhou&repository=ha-aircloud&category=integration)
+
 把**合宙 AirCloud / iot.openluat.com** 平台的定位设备（宠物追踪器、车载定位器、Air8202 等）
 接入 Home Assistant：地图轨迹、电量、信号、卫星数、转向统计。
 
 > HA custom integration for the **OpenLuat AirCloud** IoT platform — device tracker, battery,
 > signal, satellite count and turn statistics for LuatOS GPS trackers.
+
+---
+
+## 一键安装
+
+点上面的按钮，或直接点这个链接 → 会自动打开你 HA 里的 **HACS** 并定位到本仓库：
+
+**① 添加到 HACS**
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=JochenZhou&repository=ha-aircloud&category=integration)
+
+**② 重启 HA 后，一键添加集成**
+
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=aircloud)
+
+> 这两个链接用的是 Home Assistant 官方的 [My Home Assistant](https://my.home-assistant.io/) 跳转服务。
+> 首次点会问一次你的 HA 地址（之后记住），**不会**把任何信息发给第三方 —— 跳转目标始终是你自己的
+> HA 实例（`https://<你的HA>/_my_redirect/…`）。需要 HA **2022.8+**。
+> 如果按钮点了没反应（比如 HA 只在局域网、浏览器在公网），用下面的手动步骤。
 
 ---
 
@@ -28,18 +49,25 @@
 
 ## 安装
 
-### 方式一：HACS（推荐）
+### 方式一：一键添加（推荐）
+
+1. 点上面的 **[① 添加到 HACS]** 按钮 → HACS 打开本仓库 → 点 **Download** → **重启 HA**
+2. 点 **[② 一键添加集成]** 按钮 → 填手机号密码即可（详见下方「配置」）
+
+### 方式二：HACS 手动添加
 
 1. HACS → 右上角 ⋮ → **自定义存储库**
 2. 添加 `https://github.com/JochenZhou/ha-aircloud`，类别选 **集成（Integration）**
 3. 搜索「合宙 IoT」→ 下载 → **重启 Home Assistant**
 4. 设置 → 设备与服务 → 添加集成 → **合宙 IoT**
 
-### 方式二：手动
+### 方式三：手动
 
 把 `custom_components/aircloud/` 拷进 HA 的 `/config/custom_components/`，重启 HA。
 
 ## 配置
+
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=aircloud)
 
 1. 添加集成，填**合宙账号的手机号 + 密码**
 2. **验证码识别模型**（可选）：
