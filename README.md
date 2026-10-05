@@ -1,5 +1,6 @@
 # 合宙 IoT (AirCloud) · Home Assistant 自定义集成
 
+[![Validate](https://github.com/JochenZhou/ha-aircloud/actions/workflows/validate.yml/badge.svg)](https://github.com/JochenZhou/ha-aircloud/actions/workflows/validate.yml)
 [![hacs](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
